@@ -272,6 +272,17 @@ DEEPSEEK_TIMEOUT=300
 DEEPSEEK_MAX_TOKENS=500
 ```
 
-Ollama corre en la computadora de un integrante y el servidor llega a él mediante un **túnel SSH inverso**
-(`ssh -N -R 127.0.0.1:11434:localhost:11434 usuario@servidor`). Si Ollama no responde, el servicio usa un motor
-determinista de respaldo. La conexión por la VPN del equipo queda como paso pendiente: solo cambiaría `DEEPSEEK_BASE_URL`.
+Ollama corre en la computadora de un integrante (contenedor Docker) y el servidor lo consume a través de una
+**VPN WireGuard**: servidor `10.8.0.1` y PC `10.8.0.2` (UDP 51820). La IA llama a
+`http://10.8.0.2:11434/v1`, por lo que Ollama nunca se expone a Internet. Si Ollama no responde, el servicio usa
+un motor determinista de respaldo.
+
+```ini
+# /etc/wireguard/wg0.conf (servidor); las llaves privadas NO se guardan en el repositorio
+[Interface]
+Address = 10.8.0.1/24
+ListenPort = 51820
+
+[Peer]
+AllowedIPs = 10.8.0.2/32
+```
