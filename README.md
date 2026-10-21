@@ -237,3 +237,41 @@ AdaptMobile/
     ├── processed_data2.csv
     └── data.json
 ```
+
+---
+
+## Despliegue en la nube (Práctica integradora 2)
+
+**Aplicación en línea:** http://79.143.88.199
+
+### Cómo se desplegó
+El proyecto incluye `docker-compose.yml` (4 contenedores) y sirve para ejecutarlo en una computadora local.
+En el servidor de la práctica **se desplegó sin Docker** porque el disco es de solo 5 GB y las imágenes no cabían.
+El script [`deploy/deploy_nativo.sh`](deploy/deploy_nativo.sh) instala PostgreSQL, NGINX y un entorno de Python,
+y crea los servicios `adaptmobile-ai` y `adaptmobile-backend` con systemd:
+
+```bash
+# en el servidor, como root, con el proyecto descomprimido en /opt/Los_Telefonos
+bash deploy_nativo.sh
+```
+
+El proxy inverso (NGINX) es la única puerta de entrada pública: sirve el frontend y reenvía `/api/` al backend.
+El backend (8000), la IA (8001) y PostgreSQL (5432) escuchan solo en `127.0.0.1`.
+La configuración real está en [`deploy/nginx-adaptmobile.conf`](deploy/nginx-adaptmobile.conf) y el diagrama de red
+en [`docs/ARQUITECTURA_RED.md`](docs/ARQUITECTURA_RED.md).
+
+### IA con Ollama
+El servicio de IA usa una API compatible con OpenAI, por lo que se conecta a Ollama sin cambiar código
+(modelo `qwen2.5-coder:7b`). Variables en `.env` (ver `.env.example`):
+
+```env
+AI_PROVIDER=deepseek
+DEEPSEEK_BASE_URL=http://127.0.0.1:11434/v1
+DEEPSEEK_MODEL=qwen2.5-coder:7b
+DEEPSEEK_TIMEOUT=300
+DEEPSEEK_MAX_TOKENS=500
+```
+
+Ollama corre en la computadora de un integrante y el servidor llega a él mediante un **túnel SSH inverso**
+(`ssh -N -R 127.0.0.1:11434:localhost:11434 usuario@servidor`). Si Ollama no responde, el servicio usa un motor
+determinista de respaldo. La conexión por la VPN del equipo queda como paso pendiente: solo cambiaría `DEEPSEEK_BASE_URL`.
