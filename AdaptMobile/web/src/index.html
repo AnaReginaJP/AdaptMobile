@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AdaptMobile — Análisis de Compatibilidad Móvil con IA</title>
+  <meta name="description" content="SaaS de análisis de viabilidad y compatibilidad de proyectos móviles en miles de dispositivos reales sin inventar especificaciones.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .region-switch { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:0 0 1rem; }
+    .region-label { color:var(--text-secondary); font-size:.82rem; font-weight:600; }
+    .region-btn { background:var(--bg-card-subtle); color:var(--text-secondary); border:1px solid var(--border-color);
+      font-family:var(--font-sans); font-size:.85rem; font-weight:600; padding:.4rem .85rem; border-radius:999px; cursor:pointer; transition:all .15s; }
+    .region-btn:hover { background:var(--bg-hover); color:var(--text-primary); }
+    .region-btn.active { background:var(--gradient-primary); color:#fff; border-color:transparent; box-shadow:var(--shadow-glow); }
+  </style>
+</head>
+<body>
+  <!-- Header / Navigation -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand" id="brand-logo" onclick="switchTab('analyzer')">
+        <div class="brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="5" y="2" width="14" height="20" rx="3"></rect>
+            <path d="M12 18h.01"></path>
+            <path d="M9 6h6"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">AdaptMobile</span>
+          <span class="brand-badge">SaaS AI</span>
+        </div>
+      </div>
+
+      <nav class="nav-links">
+        <button class="nav-btn active" id="nav-analyzer" onclick="switchTab('analyzer')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          Analizador
+        </button>
+        <button class="nav-btn" id="nav-history" onclick="switchTab('history')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v5h5"></path><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"></path><path d="M12 7v5l4 2"></path></svg>
+          Historial
+        </button>
+        <button class="nav-btn" id="nav-devices" onclick="switchTab('devices')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+          Base de Teléfonos
+        </button>
+        <button class="nav-btn" id="nav-plans" onclick="openPlansModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+          Planes
+        </button>
+        <button class="nav-btn admin-only" id="nav-admin" style="display:none;" onclick="switchTab('admin')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          Panel Admin
+        </button>
+      </nav>
+
+      <div class="user-control-area">
+        <!-- Not Logged In State -->
+        <div id="auth-unlogged" class="auth-buttons">
+          <button class="btn btn-secondary btn-sm" id="btn-quick-login" onclick="openAuthModal('login')">Iniciar Sesión</button>
+          <button class="btn btn-primary btn-sm" id="btn-quick-register" onclick="openAuthModal('register')">Registrarse</button>
+        </div>
+
+        <!-- Logged In State -->
+        <div id="auth-logged" class="user-profile-badge" style="display:none;">
+          <div class="credits-pill" id="credits-pill" onclick="openPlansModal()" title="Haz clic para recargar o ver planes">
+            <span class="credits-dot"></span>
+            <span id="credits-text">Créditos: 2/2</span>
+          </div>
+          <div class="user-menu-trigger" onclick="toggleUserDropdown()">
+            <div class="user-avatar" id="user-avatar">U</div>
+            <div class="user-meta">
+              <span class="user-email" id="user-email">usuario@adaptmobile.io</span>
+              <span class="user-role-badge" id="user-role-badge">FREE</span>
+            </div>
+          </div>
+          <!-- Dropdown -->
+          <div class="user-dropdown" id="user-dropdown">
+            <div class="dropdown-item" onclick="openPlansModal()">
+              <span>💎 Mejorar Plan</span>
+            </div>
+            <div class="dropdown-item" onclick="handleLogout()">
+              <span>🚪 Cerrar Sesión</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-content">
+
+    <!-- ========================================== -->
+    <!-- VIEW 1: ANALYZER (Panel Principal) -->
+    <!-- ========================================== -->
+    <section id="view-analyzer" class="view-section active">
+      <!-- Hero Upload Box -->
+      <div class="hero-panel">
+        <div class="hero-text">
+          <h1>Análisis de Hardware y Compatibilidad Móvil</h1>
+          <p>Sube un único archivo de tu proyecto (<code>package.json</code>, <code>build.gradle</code>, <code>README.md</code>, <code>pubspec.yaml</code>) para estimar requisitos y predecir la compatibilidad en los teléfonos reales del mercado que elijas (México, EE. UU. o Canadá).</p>
+        </div>
+
+        <div class="region-switch" role="group" aria-label="Mercado objetivo">
+          <span class="region-label">Mercado:</span>
+          <button type="button" class="region-btn" data-region="mx" onclick="setRegion('mx')">🇲🇽 México</button>
+          <button type="button" class="region-btn" data-region="us" onclick="setRegion('us')">🇺🇸 EE. UU.</button>
+          <button type="button" class="region-btn" data-region="ca" onclick="setRegion('ca')">🇨🇦 Canadá</button>
+        </div>
+
+        <!-- Aviso: créditos agotados -->
+        <div class="credits-alert" id="credits-alert" style="display:none;">
+          <div class="credits-alert-text">
+            <strong>Has agotado tus análisis de este mes</strong>
+            <span>El plan gratuito incluye 2 análisis o preguntas mensuales. Se renuevan automáticamente el mes que viene.</span>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" onclick="openPlansModal()">Ver planes</button>
+        </div>
+
+        <!-- Upload Dropzone -->
+        <div class="upload-card" id="drop-zone">
+          <input type="file" id="file-input" class="file-input-hidden" accept=".json,.gradle,.kts,.xml,.yaml,.yml,.md,.txt,.swift,.podspec">
+          <div class="upload-icon-pulse">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+          </div>
+          <h3 class="upload-title">Arrastra tu archivo aquí o haz clic para explorar</h3>
+          <p class="upload-subtitle">Soporta: <code>package.json</code> (React Native), <code>build.gradle</code> (Android), <code>pubspec.yaml</code> (Flutter), <code>README.md</code>, etc. (Máx 10 MB)</p>
+          <div class="upload-btn-wrap">
+            <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+              Seleccionar Archivo
+            </button>
+          </div>
+          
+          <!-- Sample Demo Projects for instant 1-click test -->
+          <div class="demo-samples">
+            <span class="demo-label">O prueba un archivo de ejemplo:</span>
+            <div class="demo-chips">
+              <button class="demo-chip" onclick="loadDemoProject('react-native')">⚛️ React Native 3D</button>
+              <button class="demo-chip" onclick="loadDemoProject('flutter')">🐦 Flutter Multiplatform</button>
+              <button class="demo-chip" onclick="loadDemoProject('android-gradle')">🤖 Android Jetpack</button>
+              <button class="demo-chip" onclick="loadDemoProject('unity')">🎮 Unity Mobile Game</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Analysis Progress Overlay / Bar -->
+        <div class="analysis-loading" id="analysis-loading" style="display:none;">
+          <div class="scanner-line"></div>
+          <div class="loading-spinner"></div>
+          <h4 id="loading-step-text">Procesando archivo...</h4>
+          <p class="loading-sub">La IA está estimando requisitos y cruzando con la base de datos de PostgreSQL...</p>
+        </div>
+      </div>
+
+      <!-- Analysis Results View (Initially Hidden) -->
+      <div id="results-panel" class="results-panel" style="display:none;">
+        
+        <!-- Results Header -->
+        <div class="results-header-card">
+          <div class="project-info">
+            <div class="project-badge" id="res-badge-framework">React Native</div>
+            <h2 id="res-project-name">Nombre del Proyecto</h2>
+            <div class="project-meta-row">
+              <span id="res-filename">archivo.json</span> •
+              <span id="res-lang">TypeScript</span> •
+              <span id="res-timestamp">Hace un momento</span>
+            </div>
+          </div>
+          <div class="new-analysis-btn-wrap">
+            <button class="btn btn-secondary btn-sm" onclick="resetToUpload()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              Nuevo Análisis
+            </button>
+          </div>
+        </div>
+
+        <!-- Requirements & Stats Grid -->
+        <div class="dashboard-grid">
+          
+          <!-- Column 1: Hardware Specs Estimated by AI -->
+          <div class="card spec-card">
+            <div class="card-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+              Requisitos de Hardware Estimados por IA
+            </div>
+            
+            <div class="spec-metrics-list">
+              <div class="spec-item">
+                <div class="spec-label">Memoria RAM</div>
+                <div class="spec-value" id="spec-ram">Mín 4.0 GB / Rec 6.0 GB</div>
+              </div>
+              <div class="spec-item">
+                <div class="spec-label">Almacenamiento Libre</div>
+                <div class="spec-value" id="spec-storage">2.5 GB</div>
+              </div>
+              <div class="spec-item">
+                <div class="spec-label">Procesador (CPU)</div>
+                <div class="spec-value" id="spec-cpu">Mín 6 núcleos</div>
+              </div>
+              <div class="spec-item">
+                <div class="spec-label">Gráficos & GPU</div>
+                <div class="spec-value" id="spec-gpu">Vulkan 1.1 / Metal 2.0 (Gama Media)</div>
+              </div>
+              <div class="spec-item">
+                <div class="spec-label">Sistema Operativo Mínimo</div>
+                <div class="spec-value" id="spec-os">Android 10.0+ / iOS 14.0+</div>
+              </div>
+            </div>
+
+            <!-- Heavy detected features -->
+            <div class="features-detected-wrap">
+              <div class="features-title">Librerías / Módulos de Alto Impacto Detectados:</div>
+              <div class="tags-container" id="res-heavy-features">
+                <!-- Tags populated dynamically -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 2: Compatibility KPIs -->
+          <div class="card kpi-card">
+            <div class="card-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+              Índice Global de Compatibilidad
+            </div>
+
+            <!-- Percentage Bar -->
+            <div class="kpi-bars-wrap">
+              <div class="multi-progress-bar">
+                <div class="bar-part bar-compat" id="bar-compat" style="width: 60%;"></div>
+                <div class="bar-part bar-limited" id="bar-limited" style="width: 25%;"></div>
+                <div class="bar-part bar-incompat" id="bar-incompat" style="width: 15%;"></div>
+              </div>
+            </div>
+
+            <div class="kpi-badges-row">
+              <div class="kpi-badge-box badge-compat">
+                <div class="kpi-count" id="count-compat">0</div>
+                <div class="kpi-status-title">🟢 Compatible</div>
+                <div class="kpi-pct" id="pct-compat">0%</div>
+              </div>
+              <div class="kpi-badge-box badge-limited">
+                <div class="kpi-count" id="count-limited">0</div>
+                <div class="kpi-status-title">🟡 Con Limitaciones</div>
+                <div class="kpi-pct" id="pct-limited">0%</div>
+              </div>
+              <div class="kpi-badge-box badge-incompat">
+                <div class="kpi-count" id="count-incompat">0</div>
+                <div class="kpi-status-title">🔴 No Compatible</div>
+                <div class="kpi-pct" id="pct-incompat">0%</div>
+              </div>
+            </div>
+
+            <div class="total-tested-pill">
+              Total dispositivos verificados en BD: <strong id="total-devices-tested">0</strong>
+            </div>
+
+            <!-- Summary text from AI -->
+            <div class="ai-summary-box">
+              <div class="ai-summary-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                Diagnóstico Sintético de la IA
+              </div>
+              <p id="res-ai-summary">El proyecto presenta un alto nivel de viabilidad...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Bottlenecks & Recommendations -->
+        <div class="card recommendations-card">
+          <div class="card-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            Recomendaciones de Optimización de la IA
+          </div>
+          
+          <div class="bottlenecks-list" id="bottlenecks-list">
+            <!-- Bottlenecks pills -->
+          </div>
+
+          <div class="recs-grid" id="recs-container">
+            <!-- Recommendations cards -->
+          </div>
+        </div>
+
+        <!-- Interactive Device Compatibility Browser -->
+        <div class="card devices-browser-card">
+          <div class="browser-header">
+            <div>
+              <h3>Matriz de Compatibilidad por Dispositivo</h3>
+              <p class="section-desc">Filtra y revisa el motivo de compatibilidad para cada teléfono de la base de datos.</p>
+            </div>
+
+            <div class="filters-toolbar">
+              <!-- Filter tabs -->
+              <div class="status-filter-tabs">
+                <button class="status-tab active" onclick="filterDevicesByStatus('')">Todos (<span id="tab-count-all">0</span>)</button>
+                <button class="status-tab tab-compat" onclick="filterDevicesByStatus('compatible')">🟢 Compatibles (<span id="tab-count-compat">0</span>)</button>
+                <button class="status-tab tab-limited" onclick="filterDevicesByStatus('limited')">🟡 Con Limitaciones (<span id="tab-count-limited">0</span>)</button>
+                <button class="status-tab tab-incompat" onclick="filterDevicesByStatus('incompatible')">🔴 No Compatibles (<span id="tab-count-incompat">0</span>)</button>
+              </div>
+
+              <!-- Brand Filter & Search -->
+              <div class="search-inputs-row">
+                <select id="device-brand-filter" class="form-select" onchange="applyDeviceFilters()">
+                  <option value="">Todas las marcas</option>
+                </select>
+                <div class="search-box">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                  <input type="text" id="device-search-input" placeholder="Buscar modelo (ej: iPhone 16, S23, Xiaomi)..." oninput="debounceDeviceSearch()">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Device Table / Cards -->
+          <div class="device-table-container">
+            <table class="devices-table">
+              <thead>
+                <tr>
+                  <th>Dispositivo</th>
+                  <th>RAM</th>
+                  <th>Almacenamiento</th>
+                  <th>SO & Versión</th>
+                  <th>CPU / Chipset</th>
+                  <th>Estado</th>
+                  <th>Diagnóstico</th>
+                  <th>Detalle</th>
+                </tr>
+              </thead>
+              <tbody id="devices-table-body">
+                <!-- Rows injected dynamically -->
+              </tbody>
+            </table>
+            
+            <div id="devices-empty-state" class="empty-state" style="display:none;">
+              <p>No se encontraron dispositivos con los filtros seleccionados.</p>
+            </div>
+          </div>
+
+          <!-- Pagination -->
+          <div class="pagination-footer">
+            <span id="pagination-info">Mostrando 1 - 50</span>
+            <div class="pagination-buttons">
+              <button class="btn btn-secondary btn-sm" id="btn-prev-page" onclick="prevDevicePage()">Anterior</button>
+              <button class="btn btn-secondary btn-sm" id="btn-next-page" onclick="nextDevicePage()">Siguiente</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive AI Chat / Specific Phone Q&A -->
+        <div class="card qa-assistant-card">
+          <div class="card-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            Consultar a la IA sobre un Teléfono Específico
+          </div>
+          <p class="qa-helper-text">Pregunta por cualquier modelo (ej: <em>"¿Puede un Samsung Galaxy S21 correr este proyecto?"</em>). La IA buscará primero sus especificaciones en PostgreSQL para evitar inventar datos.</p>
+
+          <div class="chat-thread" id="chat-thread">
+            <div class="chat-msg chat-assistant">
+              <div class="msg-author">Asistente AdaptMobile:</div>
+              <div class="msg-body">¡Hola! Puedes consultarme sobre cómo rendirá este proyecto en cualquier teléfono concreto de nuestra base de datos. Recuerda que cada consulta consume 1 crédito de tu plan.</div>
+            </div>
+          </div>
+
+          <form class="chat-input-form" id="chat-form" onsubmit="handleSendQuestion(event)">
+            <input type="text" id="chat-question-input" class="form-input" placeholder="Ej: ¿Qué tal funcionará en un iPhone 12 mini o en un Motorola G84?" required>
+            <button type="submit" class="btn btn-primary" id="btn-send-question">
+              <span>Preguntar</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            </button>
+          </form>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- VIEW 2: HISTORY (Historial del Usuario) -->
+    <!-- ========================================== -->
+    <section id="view-history" class="view-section" style="display:none;">
+      <div class="section-header">
+        <div>
+          <h2>Historial de Análisis</h2>
+          <p>Revisa y consulta nuevamente los proyectos evaluados en tu cuenta.</p>
+        </div>
+      </div>
+
+      <div class="history-grid" id="history-container">
+        <!-- Injected dynamically -->
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- VIEW 3: DEVICE CATALOG (Base de Teléfonos) -->
+    <!-- ========================================== -->
+    <section id="view-devices" class="view-section" style="display:none;">
+      <div class="section-header">
+        <div>
+          <h2>Catálogo de Dispositivos Verificados</h2>
+          <p>Teléfonos reales de <code>processed_data2.csv</code> y <code>data.json</code>, filtrados al mercado seleccionado (México, EE. UU. o Canadá).</p>
+          <div class="region-switch" role="group" aria-label="Mercado del catálogo">
+            <span class="region-label">Mercado:</span>
+            <button type="button" class="region-btn" data-region="mx" onclick="setRegion('mx')">🇲🇽 México</button>
+            <button type="button" class="region-btn" data-region="us" onclick="setRegion('us')">🇺🇸 EE. UU.</button>
+            <button type="button" class="region-btn" data-region="ca" onclick="setRegion('ca')">🇨🇦 Canadá</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="catalog-filters-bar">
+        <div class="search-box">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="catalog-search" placeholder="Buscar por marca o modelo..." oninput="debounceCatalogSearch()">
+        </div>
+        <select id="catalog-brand-filter" class="form-select" onchange="loadCatalogDevices()">
+          <option value="">Todas las marcas</option>
+        </select>
+        <select id="catalog-os-filter" class="form-select" onchange="loadCatalogDevices()">
+          <option value="">Cualquier Sistema Operativo</option>
+          <option value="Android">Android</option>
+          <option value="iOS">iOS</option>
+        </select>
+      </div>
+
+      <div class="device-table-container">
+        <table class="devices-table">
+          <thead>
+            <tr>
+              <th>Marca</th>
+              <th>Modelo</th>
+              <th>RAM</th>
+              <th>Almacenamiento</th>
+              <th>SO</th>
+              <th>Procesador / CPU</th>
+              <th>GPU</th>
+              <th>Resolución</th>
+              <th>Año</th>
+            </tr>
+          </thead>
+          <tbody id="catalog-table-body">
+            <!-- Dynamic rows -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination-footer">
+        <span id="catalog-pagination-info">Mostrando dispositivos</span>
+        <div class="pagination-buttons">
+          <button class="btn btn-secondary btn-sm" id="btn-catalog-prev" onclick="catalogPrevPage()">Anterior</button>
+          <button class="btn btn-secondary btn-sm" id="btn-catalog-next" onclick="catalogNextPage()">Siguiente</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- VIEW 4: ADMIN PANEL -->
+    <!-- ========================================== -->
+    <section id="view-admin" class="view-section" style="display:none;">
+      <div class="section-header">
+        <div>
+          <h2>Panel de Administración de AdaptMobile</h2>
+          <p>Métricas del sistema, gestión de usuarios, cuotas de crédito y planes de suscripción.</p>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="loadAdminStats()">
+          ↻ Actualizar Telemetría
+        </button>
+      </div>
+
+      <!-- Telemetry Stats Cards -->
+      <div class="admin-kpis-grid">
+        <div class="card admin-kpi">
+          <div class="admin-kpi-num" id="admin-total-users">0</div>
+          <div class="admin-kpi-label">Usuarios Registrados</div>
+        </div>
+        <div class="card admin-kpi">
+          <div class="admin-kpi-num" id="admin-total-analyses">0</div>
+          <div class="admin-kpi-label">Análisis Realizados</div>
+        </div>
+        <div class="card admin-kpi">
+          <div class="admin-kpi-num" id="admin-total-devices">0</div>
+          <div class="admin-kpi-label">Teléfonos en BD</div>
+        </div>
+        <div class="card admin-kpi">
+          <div class="admin-kpi-num" id="admin-total-questions">0</div>
+          <div class="admin-kpi-label">Consultas a la IA</div>
+        </div>
+        <div class="card admin-kpi">
+          <div class="admin-kpi-num" id="admin-total-credits">0</div>
+          <div class="admin-kpi-label">Créditos Consumidos</div>
+        </div>
+        <div class="card admin-kpi">
+          <div class="admin-kpi-num" id="admin-total-usage-events">0</div>
+          <div class="admin-kpi-label">Eventos de Uso</div>
+        </div>
+      </div>
+
+      <!-- User Management Table -->
+      <div class="card admin-users-card">
+        <h3>Gestión de Usuarios & Créditos</h3>
+        <div class="device-table-container">
+          <table class="devices-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Email</th>
+                <th>Nombre</th>
+                <th>Rol</th>
+                <th>Plan</th>
+                <th>Créditos Usados / Límite</th>
+                <th>Fecha Registro</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="admin-users-table-body">
+              <!-- Admin user rows -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Funnel de conversión y uso de créditos -->
+      <div class="card admin-ai-card">
+        <div class="admin-ai-header">
+          <div>
+            <h3>📊 Embudo de conversión</h3>
+            <p class="admin-ai-sub">Del registro al clic en mejorar plan, con la tasa de paso entre pasos.</p>
+          </div>
+          <span class="admin-ai-value" id="admin-usage-detail">Sin consumo registrado todavía</span>
+        </div>
+        <div class="device-table-container">
+          <table class="devices-table">
+            <thead>
+              <tr>
+                <th>Paso</th>
+                <th>Eventos</th>
+                <th>Vs. paso anterior</th>
+                <th>Desde el registro</th>
+              </tr>
+            </thead>
+            <tbody id="admin-funnel-body">
+              <!-- Filas dinámicas -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- DeepSeek API Key Management -->
+      <div class="card admin-ai-card">
+        <div class="admin-ai-header">
+          <div>
+            <h3>🔑 Motor de IA · API key de DeepSeek</h3>
+            <p class="admin-ai-sub">La key se aplica en caliente: entra en vigor en la siguiente consulta, sin reiniciar contenedores.</p>
+          </div>
+          <span class="status-pill limited" id="ai-key-mode">Consultando…</span>
+        </div>
+
+        <div class="admin-ai-status">
+          <div class="admin-ai-status-item">
+            <span class="admin-ai-label">Fuente de la key</span>
+            <span class="admin-ai-value" id="ai-key-source">—</span>
+          </div>
+          <div class="admin-ai-status-item">
+            <span class="admin-ai-label">Key activa</span>
+            <span class="admin-ai-value" id="ai-key-masked">—</span>
+          </div>
+          <div class="admin-ai-status-item">
+            <span class="admin-ai-label">Modelo</span>
+            <span class="admin-ai-value" id="ai-key-model">—</span>
+          </div>
+        </div>
+
+        <form class="admin-ai-form" onsubmit="handleSaveAiKey(event)">
+          <div class="form-group">
+            <label for="ai-key-input">Nueva API key de DeepSeek</label>
+            <input type="password" id="ai-key-input" class="form-input" autocomplete="off" spellcheck="false"
+                   placeholder="sk-... (se envía solo al microservicio de IA)">
+          </div>
+          <div class="admin-ai-actions">
+            <button type="submit" class="btn btn-primary btn-sm" id="btn-save-ai-key">Guardar key</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-clear-ai-key" onclick="handleClearAiKey()">
+              Volver a la key del .env / archivo
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="loadAdminAiKey()">↻ Estado</button>
+          </div>
+        </form>
+
+        <p class="admin-ai-hint" id="ai-key-hint">
+          Precedencia: key rotada desde aquí (memoria) → <code>secrets/deepseek_api_key</code> → variable de entorno <code>DEEPSEEK_API_KEY</code>.
+          Si no hay key, el análisis sigue funcionando con el motor heurístico.
+        </p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========================================== -->
+  <!-- MODAL: AUTHENTICATION (Login / Register) -->
+  <!-- ========================================== -->
+  <div class="modal-backdrop" id="modal-auth" style="display:none;">
+    <div class="modal-card">
+      <button class="modal-close-btn" onclick="closeAuthModal()">✕</button>
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')">Iniciar Sesión</button>
+        <button class="auth-tab" id="tab-register" onclick="switchAuthTab('register')">Crear Cuenta</button>
+      </div>
+
+      <!-- Login Form -->
+      <form id="form-login" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label>Correo Electrónico</label>
+          <input type="email" id="login-email" class="form-input" required placeholder="tu@correo.com">
+        </div>
+        <div class="form-group">
+          <label>Contraseña</label>
+          <input type="password" id="login-password" class="form-input" required placeholder="••••••••">
+        </div>
+        <div class="demo-login-box">
+          <p class="demo-sub">Credenciales de prueba rápidas:</p>
+          <button type="button" class="btn btn-secondary btn-sm btn-full" onclick="fillAdminCredentials()">
+            ⚡ Iniciar como Administrador (admin@adaptmobile.io)
+          </button>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" id="btn-submit-login">Iniciar Sesión</button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="form-register" style="display:none;" onsubmit="handleRegister(event)">
+        <div class="form-group">
+          <label>Nombre Completo</label>
+          <input type="text" id="reg-name" class="form-input" placeholder="Tu Nombre">
+        </div>
+        <div class="form-group">
+          <label>Correo Electrónico</label>
+          <input type="email" id="reg-email" class="form-input" required placeholder="tu@correo.com">
+        </div>
+        <div class="form-group">
+          <label>Contraseña</label>
+          <input type="password" id="reg-password" class="form-input" required placeholder="••••••••">
+        </div>
+        <p class="plan-note">Incluye el <strong>Plan Gratuito</strong> con 2 análisis o consultas mensuales.</p>
+        <button type="submit" class="btn btn-primary btn-full" id="btn-submit-reg">Crear Cuenta Gratis</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: SUBSCRIPTIONS & PLANS -->
+  <!-- ========================================== -->
+  <div class="modal-backdrop" id="modal-plans" style="display:none;">
+    <div class="modal-card modal-plans-card">
+      <button class="modal-close-btn" onclick="closePlansModal()">✕</button>
+      <div class="plans-modal-header">
+        <h2>Planes y Suscripciones AdaptMobile</h2>
+        <p>Aumenta tu cuota de análisis de compatibilidad y desbloquea funciones avanzadas de auditoría.</p>
+      </div>
+
+      <div class="pricing-cards-grid">
+        <!-- Free Plan -->
+        <div class="price-tier-card" id="card-plan-free">
+          <div class="tier-name">Plan Gratuito</div>
+          <div class="tier-price">$0 <span>/ mes</span></div>
+          <p class="tier-desc">Para probar el motor de IA y evaluar proyectos puntuales.</p>
+          <ul class="tier-features">
+            <li>✓ <strong>2 análisis o preguntas / mes</strong></li>
+            <li>✓ Detección de stack y frameworks</li>
+            <li>✓ Matriz de teléfonos reales de México, EE. UU. y Canadá</li>
+            <li>✓ Diagnóstico de RAM y versión de SO</li>
+          </ul>
+          <button class="btn btn-secondary btn-full" disabled id="btn-plan-free">Plan Actual</button>
+        </div>
+
+        <!-- Pro Plan -->
+        <div class="price-tier-card featured" id="card-plan-pro">
+          <div class="featured-badge">MÁS POPULAR</div>
+          <div class="tier-name">Plan Pro</div>
+          <div class="tier-price">$29 <span>/ mes</span></div>
+          <p class="tier-desc">Para desarrolladores móviles independientes y agencias.</p>
+          <ul class="tier-features">
+            <li>✓ <strong>50 análisis y preguntas / mes</strong></li>
+            <li>✓ Filtro por GPU (Vulkan, Metal, Adreno, Mali)</li>
+            <li>✓ Recomendaciones de optimización en código</li>
+            <li>✓ Soporte prioritario y análisis profundo</li>
+          </ul>
+          <button class="btn btn-primary btn-full" onclick="simulateUpgrade('pro')">
+            Actualizar a Plan Pro
+          </button>
+        </div>
+
+        <!-- Enterprise Plan -->
+        <div class="price-tier-card" id="card-plan-enterprise">
+          <div class="tier-name">Plan Enterprise</div>
+          <div class="tier-price">$99 <span>/ mes</span></div>
+          <p class="tier-desc">Para estudios de videojuegos y aplicaciones a escala masiva.</p>
+          <ul class="tier-features">
+            <li>✓ <strong>Análisis y preguntas ILIMITADAS</strong></li>
+            <li>✓ Integración CI/CD (GitHub Actions / GitLab)</li>
+            <li>✓ Pruebas de compatibilidad automatizadas</li>
+            <li>✓ SLA garantizado y soporte técnico 24/7</li>
+          </ul>
+          <button class="btn btn-secondary btn-full" onclick="simulateUpgrade('enterprise')">
+            Activar Enterprise
+          </button>
+        </div>
+      </div>
+
+      <p class="pricing-disclaimer">
+        * Entorno MVP: La actualización de plan es simulada y recarga instantáneamente tus créditos sin cargos reales.
+      </p>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

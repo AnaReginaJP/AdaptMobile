@@ -1,0 +1,100 @@
+# ============================================================================
+# OJO: este archivo es un DUPLICADO OBSOLETO del docker-compose.yml de la raíz.
+# Solo sirve si levantas la app desde dentro de AdaptMobile/ y NO incluye las
+# variables de DeepSeek ni el volumen secrets/ para rotar la API key.
+# Lo recomendado es usar el compose de la raíz:
+#     cd ..
+#     docker compose up --build
+# ============================================================================
+version: '3.8'
+
+services:
+  # 1. Contenedor de Base de Datos (PostgreSQL)
+  database:
+    image: postgres:16-alpine
+    container_name: adaptmobile_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-adaptmobile}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database:/data:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - adaptmobile_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-adaptmobile}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 2. Contenedor de Inteligencia Artificial (Microservicio Desacoplado)
+  ai:
+    build:
+      context: ./ai
+      dockerfile: Dockerfile
+    container_name: adaptmobile_ai
+    restart: unless-stopped
+    environment:
+      AI_PROVIDER: ${AI_PROVIDER:-heuristic}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AI_MODEL_NAME: ${AI_MODEL_NAME:-}
+    ports:
+      - "8001:8001"
+    networks:
+      - adaptmobile_net
+
+  # 3. Contenedor Backend Python (FastAPI REST API)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: adaptmobile_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_password}@database:5432/${POSTGRES_DB:-adaptmobile}
+      AI_SERVICE_URL: http://ai:8001
+      SECRET_KEY: ${SECRET_KEY:-adaptmobile_super_secret_jwt_key_2025}
+      ACCESS_TOKEN_EXPIRE_MINUTES: 1440
+      DATA_CSV_PATH: /data/processed_data2.csv
+      DATA_JSON_PATH: /data/data.json
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@adaptmobile.io}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+    volumes:
+      - ./database:/data:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+      ai:
+        condition: service_started
+    networks:
+      - adaptmobile_net
+
+  # 4. Contenedor Web Frontend (Nginx SPA + Reverse Proxy)
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: adaptmobile_web
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - adaptmobile_net
+
+networks:
+  adaptmobile_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

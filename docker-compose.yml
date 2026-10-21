@@ -1,0 +1,108 @@
+services:
+  # 1. Contenedor de Base de Datos (PostgreSQL)
+  database:
+    image: postgres:16-alpine
+    container_name: adaptmobile_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-adaptmobile}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./AdaptMobile/database:/data:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - adaptmobile_net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-adaptmobile}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 2. Contenedor de Inteligencia Artificial (Microservicio Desacoplado)
+  ai:
+    build:
+      context: ./AdaptMobile/ai
+      dockerfile: Dockerfile
+    container_name: adaptmobile_ai
+    restart: unless-stopped
+    environment:
+      AI_PROVIDER: ${AI_PROVIDER:-heuristic}
+      AI_MODEL_NAME: ${AI_MODEL_NAME:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # DeepSeek: la API key SIEMPRE vive en .env o en secrets/deepseek_api_key,
+      # nunca escrita directamente en este archivo.
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_API_KEY_FILE: ${DEEPSEEK_API_KEY_FILE:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      AI_ADMIN_TOKEN: ${AI_ADMIN_TOKEN:-}
+    volumes:
+      # Rotación en caliente: este archivo se relee en cada petición.
+      # Cambia la key en secrets/deepseek_api_key y surte efecto sin reiniciar nada.
+      - ./secrets:/run/secrets:ro
+    ports:
+      - "8001:8001"
+    networks:
+      - adaptmobile_net
+
+  # 3. Contenedor Backend Python (FastAPI REST API)
+  backend:
+    build:
+      context: ./AdaptMobile/backend
+      dockerfile: Dockerfile
+    container_name: adaptmobile_backend
+    restart: unless-stopped
+    environment:
+      # Driver explícito: SQLAlchemy 2.1+ ya no usa psycopg2 por defecto para "postgresql://"
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_password}@database:5432/${POSTGRES_DB:-adaptmobile}
+      AI_SERVICE_URL: http://ai:8001
+      SECRET_KEY: ${SECRET_KEY:-adaptmobile_super_secret_jwt_key_2025}
+      ACCESS_TOKEN_EXPIRE_MINUTES: 1440
+      DATA_CSV_PATH: /data/processed_data2.csv
+      DATA_JSON_PATH: /data/data.json
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@adaptmobile.io}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      # Token compartido para que el panel admin pueda rotar la API key de DeepSeek
+      AI_ADMIN_TOKEN: ${AI_ADMIN_TOKEN:-}
+      # Stripe (estructura lista; sin cobros todavía)
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+    volumes:
+      - ./AdaptMobile/database:/data:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+      ai:
+        condition: service_started
+    networks:
+      - adaptmobile_net
+
+  # 4. Contenedor Web Frontend (Nginx SPA + Reverse Proxy)
+  web:
+    build:
+      context: ./AdaptMobile/web
+      dockerfile: Dockerfile
+    container_name: adaptmobile_web
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - adaptmobile_net
+
+networks:
+  adaptmobile_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

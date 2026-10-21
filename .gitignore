@@ -1,0 +1,12 @@
+# Secretos y basura de Python: nunca deben subirse a un repositorio.
+.env
+secrets/deepseek_api_key
+secrets/*.key
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Datos pesados (se descargan/regeneran aparte)
+*.db

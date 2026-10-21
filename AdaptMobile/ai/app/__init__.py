@@ -1,0 +1,1 @@
+# AdaptMobile AI Microservice Package
