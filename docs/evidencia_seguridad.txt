@@ -1,0 +1,11 @@
+Fecha: Tue Oct 20 19:46:06     2026
+Servidor probado: 79.143.88.199
+----------------------------------------------
+OK     NGINX responde en el puerto 80 (HTTP 200)
+OK     El proxy /api/ llega al backend (HTTP 200)
+OK     Backend FastAPI (puerto 8000) cerrado desde internet
+OK     Servicio de IA (puerto 8001) cerrado desde internet
+OK     PostgreSQL (puerto 5432) cerrado desde internet
+OK     Ollama (puerto 11434) cerrado desde internet
+----------------------------------------------
+RESULTADO: todas las pruebas pasaron
