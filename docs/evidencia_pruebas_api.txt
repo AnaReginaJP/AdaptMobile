@@ -1,0 +1,13 @@
+Fecha: Tue Oct 20 18:59:05     2026
+API probada: http://79.143.88.199/api
+----------------------------------------------
+FALLO  Conteo de dispositivos (HTTP 000, se esperaba 200)
+OK     Marcas disponibles (MX) (HTTP 200)
+OK     Listado de dispositivos (MX) (HTTP 200)
+OK     Registro de usuario (HTTP 200)
+OK     Inicio de sesión (HTTP 200)
+OK     Perfil sin token es rechazado (HTTP 401)
+FALLO  Perfil con token válido (HTTP 401, se esperaba 200)
+OK     Contraseña incorrecta es rechazada (HTTP 401)
+----------------------------------------------
+RESULTADO: 2 prueba(s) fallaron
