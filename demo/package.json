@@ -1,0 +1,22 @@
+{
+  "name": "mapa-ar-escolar",
+  "version": "1.0.0",
+  "description": "App móvil de realidad aumentada para recorrer el campus con modelos 3D y detección de objetos",
+  "main": "index.js",
+  "scripts": {
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "start": "react-native start"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-native": "0.73.6",
+    "react-native-vision-camera": "^4.0.0",
+    "react-native-fast-tflite": "^1.1.0",
+    "@react-three/fiber": "^8.15.0",
+    "three": "^0.160.0",
+    "expo-gl": "^14.0.0",
+    "@react-native-firebase/app": "^19.0.0",
+    "react-native-maps": "^1.10.0"
+  }
+}
