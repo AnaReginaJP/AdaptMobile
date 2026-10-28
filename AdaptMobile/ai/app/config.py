@@ -24,10 +24,29 @@ class AISettings(BaseModel):
     # Token que protege los endpoints de rotación de la key (/admin/api-key).
     admin_token: str = _env("AI_ADMIN_TOKEN")
 
+    # ---------- Segunda IA: solo el chat ----------
+    # Permite un modelo/key distintos para el chat (p. ej. deepseek-reasoner).
+    # Si DEEPSEEK_CHAT_* está vacío, el chat hereda la key del motor principal.
+    deepseek_chat_enabled: str = _env("DEEPSEEK_CHAT_ENABLED", "1")
+    deepseek_chat_api_key: str = _env("DEEPSEEK_CHAT_API_KEY")
+    deepseek_chat_api_key_file: str = _env("DEEPSEEK_CHAT_API_KEY_FILE")
+    deepseek_chat_model: str = _env("DEEPSEEK_CHAT_MODEL")
+    deepseek_chat_max_tokens: int = int(_env("DEEPSEEK_CHAT_MAX_TOKENS", "800") or 800)
+
     @property
     def llm_model(self) -> str:
         """AI_MODEL_NAME tiene prioridad si está definido; si no, DEEPSEEK_MODEL."""
         return self.model_name or self.deepseek_model
+
+    @property
+    def chat_model(self) -> str:
+        """Modelo de la segunda IA (chat); si no se define, el mismo del motor principal."""
+        return self.deepseek_chat_model or self.llm_model
+
+    @property
+    def chat_active(self) -> bool:
+        """Interruptor para apagar solo la IA del chat sin tocar el resto del motor."""
+        return self.deepseek_chat_enabled.strip().lower() not in ("0", "false", "no", "off")
 
 
 settings = AISettings()

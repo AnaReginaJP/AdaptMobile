@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .config import settings
-from .keyring import key_store
+from .keyring import chat_key_store, key_store
 
 logger = logging.getLogger("deepseek")
 
@@ -24,8 +24,20 @@ _FENCE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
 
 
 class DeepSeekClient:
-    def __init__(self) -> None:
+    """
+    Cliente de un modelo DeepSeek. `store` y `model` permiten tener varias
+    instancias (por ejemplo, una segunda IA solo para el chat).
+    """
+
+    def __init__(self, store=None, model: Optional[str] = None, label: str = "principal") -> None:
+        self._store = store or key_store
+        self._fixed_model = model
+        self._label = label
         self.last_error: Optional[str] = None
+
+    @property
+    def model(self) -> str:
+        return self._fixed_model or settings.llm_model
 
     # ------------------------------------------------------------------ estado
     @property
@@ -35,18 +47,18 @@ class DeepSeekClient:
 
     def available(self) -> bool:
         """True si además hay una key utilizable."""
-        return self.enabled and key_store.configured()
+        return self.enabled and self._store.configured()
 
     def status(self) -> Dict[str, Any]:
         """Estado publicable (nunca incluye la key completa)."""
         return {
             "provider": settings.provider,
-            "model": settings.llm_model,
+            "model": self.model,
             "base_url": settings.deepseek_base_url,
             "mode": "deepseek" if self.available() else "heuristic",
-            "key_configured": key_store.configured(),
-            "key_source": key_store.source(),
-            "key_masked": key_store.masked(),
+            "key_configured": self._store.configured(),
+            "key_source": self._store.source(),
+            "key_masked": self._store.masked(),
             "last_error": self.last_error,
         }
 
@@ -61,7 +73,7 @@ class DeepSeekClient:
             return None
 
         payload: Dict[str, Any] = {
-            "model": settings.llm_model,
+            "model": self.model,
             "messages": messages,
             "temperature": 0.2,
             "max_tokens": max_tokens or settings.deepseek_max_tokens,
@@ -75,19 +87,19 @@ class DeepSeekClient:
                 resp = client.post(
                     f"{settings.deepseek_base_url}/chat/completions",
                     headers={
-                        "Authorization": f"Bearer {key_store.get()}",
+                        "Authorization": f"Bearer {self._store.get()}",
                         "Content-Type": "application/json",
                     },
                     json=payload,
                 )
         except Exception as exc:  # red caída, DNS, timeout...
             self.last_error = f"conexión: {exc}"
-            logger.warning("DeepSeek inaccesible, se usa la heurística determinista: %s", exc)
+            logger.warning("%s inaccesible, se usa la heurística determinista: %s", self._label, exc)
             return None
 
         if resp.status_code >= 400:
             self.last_error = f"HTTP {resp.status_code}"
-            logger.warning("DeepSeek respondió %s: %s", resp.status_code, resp.text[:300])
+            logger.warning("%s respondió %s: %s", self._label, resp.status_code, resp.text[:300])
             return None
 
         try:
@@ -128,12 +140,18 @@ class DeepSeekClient:
                 return None
         return parsed if isinstance(parsed, dict) else None
 
+    def chat_messages(self, messages: List[Dict[str, str]], max_tokens: Optional[int] = None) -> Optional[str]:
+        """Conversación completa: system + turnos previos + pregunta actual."""
+        return self._complete(messages, json_mode=False, max_tokens=max_tokens)
+
     def chat_text(self, system: str, user: str, max_tokens: Optional[int] = None) -> Optional[str]:
-        return self._complete(
+        return self.chat_messages(
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            json_mode=False,
             max_tokens=max_tokens,
         )
 
 
-deepseek = DeepSeekClient()
+deepseek = DeepSeekClient(label="principal")
+
+# Segunda IA: la que responde en el chat (puede usar otro modelo y otra key).
+chat_ai = DeepSeekClient(store=chat_key_store, model=settings.chat_model, label="chat")

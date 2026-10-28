@@ -117,6 +117,12 @@ class QuestionOut(BaseModel):
     question: str
     answer: str
     device_name: Optional[str] = None
+    # Motor que redactó la respuesta: "IA deepseek-chat", "regla", "heuristica", "local" o "sin_ia"
+    source: Optional[str] = None
+    # True cuando respondió el modo respaldo (sin IA o IA caída)
+    fallback: Optional[bool] = None
+    # Créditos que le quedan al usuario después de esta respuesta (None = admin ilimitado)
+    credits_remaining: Optional[int] = None
     created_at: datetime
 
     class Config:
@@ -159,6 +165,20 @@ class AIKeyStatus(BaseModel):
     key_configured: Optional[bool] = None
     key_source: Optional[str] = None
     key_masked: Optional[str] = None
+    last_error: Optional[str] = None
+    override_removed: Optional[bool] = None
+    # Estado de la segunda IA (el chat): misma forma, nunca la key completa
+    chat: Optional[Dict[str, Any]] = None
+
+# --- Estado de la IA para el chat (sin secretos) ---
+class AIStatusOut(BaseModel):
+    active: bool = False            # la IA del chat está operativa
+    engine_active: bool = False     # el motor de análisis está operativo
+    provider: Optional[str] = None
+    mode: Optional[str] = None
+    model: Optional[str] = None
+    chat_model: Optional[str] = None
+    key_source: Optional[str] = None
     last_error: Optional[str] = None
 
 # --- Uso de créditos ---

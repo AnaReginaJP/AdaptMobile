@@ -11,22 +11,31 @@ class AIClient:
 
     async def estimate_requirements(self, filename: str, content: str) -> Dict[str, Any]:
         url = f"{self.base_url}/estimate-requirements"
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, json={"filename": filename, "content": content})
             resp.raise_for_status()
             return resp.json()
 
     async def generate_report(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}/generate-report"
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             return resp.json()
 
     async def ask_question(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}/ask-question"
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        # Margen amplio: la segunda IA del chat puede tardar (modelos de razonamiento).
+        async with httpx.AsyncClient(timeout=90.0) as client:
             resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            return resp.json()
+
+    async def health(self) -> Dict[str, Any]:
+        """Estado del microservicio (incluye si la IA del chat está activa)."""
+        url = f"{self.base_url}/health"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
             resp.raise_for_status()
             return resp.json()
 

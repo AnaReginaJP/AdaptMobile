@@ -38,14 +38,21 @@ def clean_key(raw: Optional[str]) -> str:
 
 
 class KeyStore:
-    def __init__(self) -> None:
+    def __init__(self, api_key: str = "", api_key_file: str = "", label: str = "principal",
+                 env_var: str = "DEEPSEEK_API_KEY", parent: Optional["KeyStore"] = None,
+                 inherit_parent: bool = False) -> None:
         self._lock = threading.Lock()
         self._override: Optional[str] = None
-        self._boot = clean_key(settings.deepseek_api_key)
+        self._label = label
+        self._api_key_file = api_key_file
+        self._env_var = env_var
+        self._parent = parent
+        self._inherit_parent = inherit_parent and parent is not None
+        self._boot = clean_key(api_key)
 
     # ------------------------------------------------------------------ fuentes
     def _from_file(self) -> str:
-        path = settings.deepseek_api_key_file
+        path = self._api_key_file
         if not path:
             return ""
         try:
@@ -54,23 +61,31 @@ class KeyStore:
             with open(path, "r", encoding="utf-8") as fh:
                 return clean_key(fh.read())
         except OSError as exc:
-            logger.warning("No se pudo leer DEEPSEEK_API_KEY_FILE (%s): %s", path, exc)
+            logger.warning("No se pudo leer el archivo de key %s (%s): %s", self._label, path, exc)
             return ""
 
     def get(self) -> str:
         with self._lock:
             if self._override is not None:
                 return self._override
+        # Sin key propia configurada (DEEPSEEK_CHAT_API_KEY vacío): se hereda la del
+        # principal, incluida la rotada en caliente desde el panel de administración.
+        if self._inherit_parent and self._parent is not None:
+            inherited = self._parent.get()
+            if inherited:
+                return inherited
         return self._from_file() or self._boot
 
     def source(self) -> str:
         with self._lock:
             if self._override is not None:
                 return "memoria (rotada en caliente)"
+        if self._inherit_parent and self._parent is not None and self._parent.configured():
+            return f"{self._parent.source()} (heredada de la IA principal)"
         if self._from_file():
-            return f"archivo {settings.deepseek_api_key_file}"
+            return f"archivo {self._api_key_file}"
         if self._boot:
-            return "variable de entorno DEEPSEEK_API_KEY"
+            return f"variable de entorno {self._env_var}"
         return "sin configurar"
 
     def configured(self) -> bool:
@@ -105,4 +120,17 @@ class KeyStore:
         return f"{key[:4]}…{key[-4:]}"
 
 
-key_store = KeyStore()
+key_store = KeyStore(
+    settings.deepseek_api_key, settings.deepseek_api_key_file, "principal", "DEEPSEEK_API_KEY"
+)
+
+# Segunda IA (chat): si no tiene key propia, HEREDA la del principal, incluida la
+# que se rota en caliente desde el panel de administración.
+chat_key_store = KeyStore(
+    settings.deepseek_chat_api_key,
+    settings.deepseek_chat_api_key_file,
+    "chat",
+    "DEEPSEEK_CHAT_API_KEY",
+    parent=key_store,
+    inherit_parent=not bool(settings.deepseek_chat_api_key or settings.deepseek_chat_api_key_file),
+)

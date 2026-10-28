@@ -4,7 +4,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from .config import settings
 from .parser import parse_project_file
-from .deepseek import deepseek
+from .deepseek import chat_ai, deepseek
 
 logger = logging.getLogger("ai_engine")
 
@@ -256,17 +256,22 @@ class AIEngine:
         question = payload.get("question", "")
         reqs = payload.get("requirements", {})
         project_name = payload.get("project_name", "el proyecto")
+        history = payload.get("history") or []
 
-        # Strict rule: If device was not found in database, do NOT invent data!
+        # Sin dispositivo verificado: la IA conversa con el contexto del análisis.
+        # Sin IA configurada el texto debe ser honesto (nunca "modelo no encontrado" por un saludo).
         if not device:
-            return {
+            deterministic = {
                 "answer": (
-                    "El modelo consultado no se encuentra en la base de datos verificada de AdaptMobile. "
-                    "Para garantizar total precisión y no inventar especificaciones técnicas, "
-                    "únicamente evaluamos dispositivos presentes en los registros oficiales importados."
+                    "La IA conversacional no está configurada todavía, así que no puedo responder "
+                    "preguntas abiertas. Sí puedo darte resultados del catálogo verificado: pregúntame "
+                    "por un modelo concreto (por ejemplo «¿cómo correrá en un Samsung Galaxy S23?») "
+                    "o revisa la matriz de compatibilidad del análisis."
                 ),
-                "device_found": False
+                "device_found": False,
+                "source": "sin_ia",
             }
+            return self._try_llm_general_answer(payload, deterministic, history)
 
         brand = (device.get("phone_brand") or "").strip().capitalize()
         model = (device.get("phone_model") or "").strip()
@@ -312,6 +317,7 @@ class AIEngine:
             "answer": answer,
             "verdict": verdict,
             "device_found": True,
+            "source": "heuristica",
             "device": {
                 "brand": brand,
                 "model": model,
@@ -320,8 +326,8 @@ class AIEngine:
                 "os": f"{os_name} {os_ver}"
             }
         }
-        # El veredicto determinista nunca se delega al LLM; DeepSeek solo redacta.
-        return self._try_llm_answer(payload, device, reqs, deterministic)
+        # El veredicto determinista nunca se delega al LLM; la IA solo redacta el hilo.
+        return self._try_llm_answer(payload, device, reqs, deterministic, history)
 
     # ------------------------------------------------------------------ DeepSeek
     # El LLM NUNCA puede introducir valores absurdos: todo número se acota a un
@@ -441,35 +447,107 @@ class AIEngine:
             "source": "deepseek",
         }
 
-    def _try_llm_answer(self, payload: Dict[str, Any], device: dict, reqs: dict, deterministic: dict) -> dict:
-        """Redacta la respuesta al usuario anclada a las specs verificadas de PostgreSQL."""
-        if not deepseek.available():
+    @staticmethod
+    def _trim_history(history, max_chars: int = 3000):
+        """Recorta la conversación por tamaño, conservando los turnos más recientes."""
+        if not history:
+            return []
+        kept, total = [], 0
+        for turn in reversed(list(history)):
+            if not isinstance(turn, dict):
+                continue
+            role = (turn.get("role") or "").strip()
+            content = (turn.get("content") or "").strip()
+            if role not in ("user", "assistant") or not content:
+                continue
+            if total + len(content) > max_chars:
+                break
+            kept.append({"role": role, "content": content})
+            total += len(content)
+        kept.reverse()
+        return kept
+
+    def _chat_messages(self, system: str, history, question: str):
+        """system + turnos previos + pregunta actual (conversación real)."""
+        messages = [{"role": "system", "content": system}]
+        messages.extend(self._trim_history(history))
+        messages.append({"role": "user", "content": (question or "").strip()})
+        return messages
+
+    def _try_llm_answer(self, payload: Dict[str, Any], device: dict, reqs: dict, deterministic: dict,
+                        history=None) -> dict:
+        """Conversa anclada a las specs verificadas de PostgreSQL."""
+        if not settings.chat_active or not chat_ai.available():
             return deterministic
 
+        specs = {
+            "nombre": display_name(device.get("phone_brand"), device.get("phone_model")),
+            "ram_gb": device.get("ram_gb"),
+            "almacenamiento_gb": device.get("storage_gb"),
+            "sistema_operativo": f"{device.get('os_type') or ''} {device.get('os_version') or ''}".strip(),
+            "cpu": device.get("cpu"),
+            "gpu": device.get("gpu"),
+        }
         system = (
-            "Eres el asistente tecnico de AdaptMobile. Explicas si un proyecto movil correra en un "
-            "telefono concreto usando SOLO las especificaciones verificadas que se te entregan. "
-            "Esta PROHIBIDO inventar, estimar o completar especificaciones que no aparezcan en los datos. "
-            "Responde en espanol, en markdown breve (maximo 180 palabras), empezando con '**Dispositivo:**' "
-            "usando el valor exacto de 'nombre_para_mostrar' (no repitas la marca), "
-            "y cerrando con un diagnostico explicito: Compatible, Compatible con limitaciones o No compatible."
+            "Eres el asistente tecnico de AdaptMobile y mantienes una conversacion con el usuario "
+            "sobre su proyecto movil y sobre un telefono concreto. "
+            f"ESPECIFICACIONES VERIFICADAS (unica fuente permitida) del telefono: "
+            f"{json.dumps(specs, ensure_ascii=False)}. "
+            f"VEREDICTO OBLIGATORIO que calculo el motor: {deterministic.get('verdict')}. "
+            "Esta PROHIBIDO inventar o completar especificaciones (RAM, CPU, GPU, camara, pantalla) "
+            "que no esten en esos datos. "
+            "Responde en espanol, markdown breve (maximo 180 palabras), sin repetir la marca dos veces, "
+            "y cierra confirmando el diagnostico: Compatible, Compatible con limitaciones o No compatible. "
+            "Si el usuario saluda o cambia de tema, responde con naturalidad y vuelve al hilo."
         )
-        user = json.dumps({
-            "proyecto": payload.get("project_name"),
-            "requisitos_del_proyecto": reqs,
-            "especificaciones_verificadas": device,
-            "nombre_para_mostrar": display_name(device.get("phone_brand"), device.get("phone_model")),
-            "pregunta_del_usuario": payload.get("question"),
-            "diagnostico_determinista_obligatorio": deterministic.get("verdict"),
-        }, ensure_ascii=False)
-
-        text = deepseek.chat_text(system, user, max_tokens=700)
+        text = chat_ai.chat_messages(
+            self._chat_messages(system, history, payload.get("question", "")),
+            max_tokens=settings.deepseek_chat_max_tokens,
+        )
         if not text or len(text.strip()) < 20:
             return deterministic
 
         result = dict(deterministic)
         result["answer"] = text.strip()[:4000]
-        result["source"] = "deepseek"
+        result["source"] = f"IA {chat_ai.model}"
+        return result
+
+    def _try_llm_general_answer(self, payload: Dict[str, Any], deterministic: dict, history=None) -> dict:
+        """
+        Segunda IA del chat: conversa con el contexto del análisis (saludos,
+        recomendaciones, dudas del proyecto) sin inventar specs de teléfonos.
+        """
+        if not settings.chat_active or not chat_ai.available():
+            return deterministic
+
+        context = {
+            "proyecto": payload.get("project_name"),
+            "mercado": payload.get("region"),
+            "requisitos_estimados": payload.get("requirements"),
+            "resumen_del_analisis": payload.get("summary"),
+            "estadisticas_de_compatibilidad": payload.get("stats"),
+        }
+        system = (
+            "Eres el asistente tecnico de AdaptMobile, un SaaS que estima si un proyecto movil corre "
+            "en telefonos reales de Mexico, EE. UU. o Canada, y mantienes una conversacion natural. "
+            f"CONTEXTO DEL ANALISIS: {json.dumps(context, ensure_ascii=False)}. "
+            "REGLAS: (1) si el usuario saluda o hace una pregunta general, contesta con naturalidad y "
+            "ofrece ayuda concreta sobre su proyecto; (2) NO inventes especificaciones de telefonos "
+            "concretos: si preguntan por un modelo que no esta en el catalogo verificado, dilo en UNA "
+            "frase y ofrece la alternativa general o que pregunte por un modelo del catalogo; "
+            "(3) usa los requisitos y las estadisticas del contexto para recomendar; "
+            "(4) responde en espanol, markdown breve (maximo 160 palabras)."
+        )
+        text = chat_ai.chat_messages(
+            self._chat_messages(system, history, payload.get("question", "")),
+            max_tokens=settings.deepseek_chat_max_tokens,
+        )
+        if not text or len(text.strip()) < 20:
+            return deterministic
+
+        result = dict(deterministic)
+        result["answer"] = text.strip()[:4000]
+        result["source"] = f"IA {chat_ai.model}"
         return result
 
 

@@ -123,10 +123,10 @@ async def rotate_ai_key(payload: AIKeyUpdate, admin: User = Depends(get_current_
 
 @router.delete("/ai-key", response_model=AIKeyStatus)
 async def revert_ai_key(admin: User = Depends(get_current_admin)):
-    """Descarta el override en memoria y vuelve a la key del archivo o del .env."""
+    """Descarta el override en memoria (motor y chat) y vuelve al archivo / .env."""
     try:
-        await ai_client.clear_ai_key()
-        return await ai_client.get_ai_key_status()
+        # El propio DELETE devuelve el estado posterior + override_removed
+        return await ai_client.clear_ai_key()
     except Exception as e:
         raise _ai_key_error(e)
 

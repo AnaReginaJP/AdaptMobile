@@ -453,6 +453,7 @@ function displayAnalysisResults(data) {
   document.querySelector(".hero-panel").style.display = "none";
   const resultsPanel = document.getElementById("results-panel");
   resultsPanel.style.display = "block";
+  loadAIStatus();   // punto verde/rojo junto al título del chat
 
   // Header
   document.getElementById("res-project-name").textContent = data.project_name || data.filename;
@@ -658,12 +659,38 @@ function debounceDeviceSearch() {
 // ==========================================
 // AI CHAT & Q&A
 // ==========================================
+// ==========================================
+// CHAT: SEGURIDAD Y PRESENTACIÓN
+// ==========================================
+// Escapa SIEMPRE el texto antes de formatearlo o inyectarlo en el DOM.
+function escapeHtml(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Etiqueta legible del motor que respondió
+const AI_SOURCE_LABELS = {
+  regla: "Regla del catálogo",
+  heuristica: "Regla del catálogo",
+  local: "Sin IA (modo respaldo)",
+  sin_ia: "Sin IA (modo respaldo)"
+};
+
+function sourceLabel(source) {
+  if (!source) return "";
+  return AI_SOURCE_LABELS[source] || source;   // "IA deepseek-chat" se muestra tal cual
+}
+
 function resetChatThread(projectName) {
   const thread = document.getElementById("chat-thread");
   thread.innerHTML = `
     <div class="chat-msg chat-assistant">
       <div class="msg-author">Asistente AdaptMobile:</div>
-      <div class="msg-body">¿Tienes dudas sobre cómo rendirá '${projectName}' en un teléfono particular? Pregúntame y buscaré sus especificaciones en PostgreSQL.</div>
+      <div class="msg-body">¿Tienes dudas sobre cómo rendirá '${escapeHtml(projectName || "")}' en un teléfono particular? Pregúntame y responderé con las especificaciones verificadas del catálogo.</div>
     </div>
   `;
 }
@@ -681,12 +708,18 @@ async function handleSendQuestion(e) {
   const question = input.value.trim();
   if (!question || !state.currentAnalysisId) return;
 
-  // Append user message
+  if (!state.token) {
+    openAuthModal("login");
+    return;
+  }
+
   appendChatMessage("Tú", question, "chat-user");
   input.value = "";
 
   const btn = document.getElementById("btn-send-question");
   btn.disabled = true;
+  input.disabled = true;
+  showTypingIndicator();
 
   try {
     const res = await fetch(`${API_BASE}/analysis/${state.currentAnalysisId}/ask`, {
@@ -701,38 +734,119 @@ async function handleSendQuestion(e) {
       })
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       if (res.status === 402) {
         openPlansModal();
         showCreditsAlert(true);
+        throw new Error(errorMessage(data, "Has agotado tus créditos de este mes."));
       }
-      throw new Error(errorMessage(data, "Error al procesar la consulta"));
+      if (res.status === 401) {
+        handleLogout();
+        throw new Error("Tu sesión expiró. Vuelve a iniciar sesión para seguir preguntando.");
+      }
+      if (res.status === 502 || res.status === 503 || res.status === 504) {
+        throw new Error("El servicio de IA no respondió a tiempo. Inténtalo de nuevo en unos segundos.");
+      }
+      throw new Error(errorMessage(data, "No se pudo procesar la consulta."));
     }
 
-    appendChatMessage("Asistente AdaptMobile", data.answer, "chat-assistant");
-    await fetchCurrentUser(); // Update credits
+    appendChatMessage("Asistente AdaptMobile", data.answer, "chat-assistant", {
+      source: data.source,
+      fallback: data.fallback,
+      credits: data.credits_remaining
+    });
+    await fetchCurrentUser(); // Actualiza el contador de créditos de la cabecera
   } catch (err) {
-    appendChatMessage("Error", err.message, "chat-assistant");
+    appendChatMessage("Error", (err && err.message) || "Error al procesar la consulta", "chat-assistant error");
   } finally {
+    hideTypingIndicator();
     btn.disabled = false;
+    input.disabled = false;
+    input.focus();
   }
 }
 
-function appendChatMessage(author, text, cssClass) {
+function showTypingIndicator() {
+  hideTypingIndicator();
+  const thread = document.getElementById("chat-thread");
+  if (!thread) return;
+  const typing = document.createElement("div");
+  typing.id = "chat-typing";
+  typing.className = "chat-msg chat-assistant";
+  typing.innerHTML = `
+    <div class="msg-author">Asistente AdaptMobile:</div>
+    <div class="msg-body typing-dots">El asistente está escribiendo<span>.</span><span>.</span><span>.</span></div>
+  `;
+  thread.appendChild(typing);
+  thread.scrollTop = thread.scrollHeight;
+}
+
+function hideTypingIndicator() {
+  const typing = document.getElementById("chat-typing");
+  if (typing) typing.remove();
+}
+
+function appendChatMessage(author, text, cssClass, opts) {
+  const options = opts || {};
   const thread = document.getElementById("chat-thread");
   const msgDiv = document.createElement("div");
   msgDiv.className = `chat-msg ${cssClass}`;
 
-  // Formatted markdown bold/newlines
-  const formattedText = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+  // 1) Escapar SIEMPRE (autor, texto y fuente) y solo después aplicar el formato.
+  const formattedText = escapeHtml(text)
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\n/g, "<br>");
+
+  const label = sourceLabel(options.source);
+  const sourceTag = label ? `<span class="msg-source">${escapeHtml(label)}</span>` : "";
+
+  const creditsTag = typeof options.credits === "number"
+    ? `<span class="msg-credits">${options.credits} crédito${options.credits === 1 ? "" : "s"} restante${options.credits === 1 ? "" : "s"}</span>`
+    : "";
+
+  const adminHint = (options.fallback && state.user && state.user.role === "admin")
+    ? `<a href="#" class="msg-fallback-link" onclick="switchTab('admin'); return false;">Configurar la API key</a>`
+    : "";
+
+  const fallbackNotice = options.fallback
+    ? `<div class="msg-fallback">⚠️ Respuesta en <strong>modo respaldo</strong>: la IA conversacional no está configurada o no está disponible.${adminHint}</div>`
+    : "";
 
   msgDiv.innerHTML = `
-    <div class="msg-author">${author}:</div>
+    <div class="msg-author">${escapeHtml(author)}:</div>
     <div class="msg-body">${formattedText}</div>
+    ${fallbackNotice}
+    <div class="msg-meta">${sourceTag}${creditsTag}</div>
   `;
   thread.appendChild(msgDiv);
   thread.scrollTop = thread.scrollHeight;
+}
+
+// Punto verde/rojo del estado de la IA en la cabecera del chat
+async function loadAIStatus() {
+  const dot = document.getElementById("chat-ai-dot");
+  const label = document.getElementById("chat-ai-status");
+  if (!dot || !label || !state.token) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/ai/status`, {
+      headers: { "Authorization": `Bearer ${state.token}` }
+    });
+    if (!res.ok) throw new Error("sin estado");
+    const data = await res.json();
+    const active = !!data.active;
+
+    dot.className = `chat-ai-dot ${active ? "online" : "offline"}`;
+    label.textContent = active ? `IA conectada${data.chat_model ? " · " + data.chat_model : ""}` : "Modo respaldo";
+    label.title = active
+      ? `IA conversacional activa (${data.key_source || "key configurada"})`
+      : `IA no configurada o no disponible${data.key_source ? " (" + data.key_source + ")" : ""}. El chat responderá con el catálogo verificado.`;
+  } catch (err) {
+    dot.className = "chat-ai-dot offline";
+    label.textContent = "Modo respaldo";
+    label.title = "No se pudo consultar el estado de la IA.";
+  }
 }
 
 // ==========================================

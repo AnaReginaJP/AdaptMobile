@@ -481,23 +481,45 @@ async def ask_analysis_question(
             "gpu": target_device.gpu
         }
 
+    answer_source = None
     if blocked_answer:
         answer_text = blocked_answer
+        answer_source = "regla"
     else:
-        # Call AI microservice with verified data (minimal tokens!)
+        # Historial de la conversación: últimos 10 turnos de este usuario en este análisis
+        history_rows = (
+            db.query(Question)
+            .filter(Question.analysis_id == analysis_id, Question.user_id == current_user.id)
+            .order_by(desc(Question.created_at))
+            .limit(10)
+            .all()
+        )
+        history = []
+        for row in reversed(history_rows):
+            history.append({"role": "user", "content": row.question})
+            history.append({"role": "assistant", "content": row.answer})
+
+        # La segunda IA del chat responde aquí: con specs verificadas si el modelo
+        # existe, o con el contexto del análisis si la pregunta es general.
         try:
             ai_resp = await ai_client.ask_question({
                 "project_name": analysis.project_name,
                 "requirements": analysis.requirements or {},
                 "device_specs": device_specs,
-                "question": payload.question
+                "question": payload.question,
+                "region": REGION_NAMES[region],
+                "summary": analysis.summary,
+                "stats": analysis.stats,
+                "history": history,
             })
             answer_text = ai_resp.get("answer", "No se pudo generar respuesta.")
+            answer_source = ai_resp.get("source") or "heuristica"
         except Exception as e:
             # El servicio de IA no respondió: contestamos con los datos verificados,
             # sin inventar nada y sin gastar tokens.
             logger.warning(f"Servicio de IA no disponible ({e}); respuesta local con datos verificados.")
             answer_text = _local_answer(analysis, target_device, region)
+            answer_source = "local"
 
     # Save question
     q_record = Question(
@@ -509,12 +531,25 @@ async def ask_analysis_question(
     )
     db.add(q_record)
 
-    current_user.credits_used += 1
-    db.commit()
+    # El modo respaldo no cobra: solo cuenta si respondió la IA o una regla del catálogo.
+    charged = bool(answer_source) and (answer_source.startswith("IA ") or answer_source == "regla")
+    if charged:
+        current_user.credits_used += 1
+        db.commit()
+        log_usage_event(db, current_user, "question", analysis_id)
+    else:
+        db.commit()
     db.refresh(q_record)
-    log_usage_event(db, current_user, "question", analysis_id)
 
-    return q_record
+    is_fallback = answer_source in ("local", "sin_ia")
+    credits_remaining = None if current_user.role == "admin" else max(
+        0, current_user.credits_limit - current_user.credits_used
+    )
+    return QuestionOut.model_validate(q_record).model_copy(update={
+        "source": answer_source,
+        "fallback": is_fallback,
+        "credits_remaining": credits_remaining,
+    })
 
 @router.get("/{analysis_id}/questions", response_model=List[QuestionOut])
 def get_analysis_questions(
@@ -522,6 +557,12 @@ def get_analysis_questions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Retrieves all Q&A history for a specific analysis."""
+    """Historial Q&A de un análisis. Solo su dueño (o un admin) puede leerlo."""
+    analysis = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Análisis no encontrado")
+    if current_user.role != "admin" and analysis.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a este análisis")
+
     questions = db.query(Question).filter(Question.analysis_id == analysis_id).order_by(Question.created_at.asc()).all()
     return questions

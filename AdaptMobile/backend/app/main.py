@@ -9,7 +9,7 @@ from .config import settings
 from .database import SessionLocal
 from .importer import seed_subscriptions_and_admin, import_devices_from_sources
 from .migrations import run_migrations
-from .routers import auth, analysis, devices, subscriptions, admin, usage
+from .routers import auth, analysis, devices, subscriptions, admin, usage, ai_status
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("adaptmobile")
@@ -64,6 +64,7 @@ app.include_router(devices.router)
 app.include_router(subscriptions.router)
 app.include_router(subscriptions.webhook_router)
 app.include_router(usage.router)
+app.include_router(ai_status.router)
 app.include_router(admin.router)
 
 @app.get("/health")

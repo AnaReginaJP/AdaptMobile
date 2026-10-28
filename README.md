@@ -140,6 +140,9 @@ backend/alembic/versions/
 | `DEEPSEEK_API_KEY_FILE` | Archivo con la API key, **releído en cada petición** (opción A: rotar sin reiniciar) | `/run/secrets/deepseek_api_key` |
 | `DEEPSEEK_BASE_URL` | Endpoint de la API de DeepSeek | `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | Modelo a usar | `deepseek-chat` |
+| `DEEPSEEK_CHAT_ENABLED` | Enciende/apaga solo la segunda IA (chat) | `1` |
+| `DEEPSEEK_CHAT_API_KEY` / `..._FILE` | Key propia del chat (vacío = hereda la principal) | *(vacío)* |
+| `DEEPSEEK_CHAT_MODEL` | Modelo propio del chat (vacío = hereda `DEEPSEEK_MODEL`) | *(vacío)* |
 | `DEEPSEEK_TIMEOUT` / `DEEPSEEK_MAX_TOKENS` | Timeout (s) y tope de tokens de salida | `45` / `1200` |
 | `AI_MODEL_NAME` | Si se define, tiene prioridad sobre `DEEPSEEK_MODEL` | *(vacío)* |
 | `AI_ADMIN_TOKEN` | Token compartido backend↔ai que autoriza la rotación de la key | *(vacío = rotación deshabilitada)* |
@@ -174,6 +177,40 @@ curl -X DELETE http://localhost:8000/api/admin/ai-key -H "Authorization: Bearer 
 Precedencia: **override en memoria → archivo → variable de entorno**. La key solo se muestra enmascarada (`sk-a…8888`) y nunca aparece en los logs.
 
 **Guardarraíles del motor:** si DeepSeek no responde (sin key, 401, timeout o JSON inválido) el sistema sigue con la heurística determinista, y todo número que devuelva el modelo se acota a rangos físicos razonables (RAM 1–16 GB, almacenamiento 0.5–32 GB, núcleos 2–16, Android 4–16, iOS 8–20) antes de usarse.
+
+---
+
+## Segunda IA: el chat
+
+El chat del análisis usa **su propia instancia del modelo** (`chat_ai`), separada del motor que estima requerimientos y redacta el informe. Por defecto **hereda la key y el modelo del motor principal**, incluida la key que se rote desde el panel Admin: con `AI_PROVIDER=deepseek` y una key válida, el chat responde con IA sin configurar nada más.
+
+**Cómo poner la key** (cualquiera de las tres vale; el chat la usa igual):
+
+1. `secrets/deepseek_api_key` — una línea, sin comillas. Se relee en cada petición: **no hay que reiniciar**.
+2. `DEEPSEEK_API_KEY` en `.env` — se aplica al recrear el contenedor (`docker compose up -d ai`).
+3. **Panel Admin → Motor de IA → Guardar key** — efecto inmediato en el motor **y en el chat**.
+
+| Variable | Para qué |
+|---|---|
+| `DEEPSEEK_CHAT_ENABLED` | `1`/`0`: enciende o apaga solo la IA del chat (el resto del motor sigue igual) |
+| `DEEPSEEK_CHAT_API_KEY` | Key propia del chat (si está vacía, hereda la principal) |
+| `DEEPSEEK_CHAT_API_KEY_FILE` | Archivo con la key del chat, releído en cada petición (si está vacío, hereda el principal) |
+| `DEEPSEEK_CHAT_MODEL` | Modelo del chat, p. ej. `deepseek-reasoner` (si está vacío, hereda el del motor) |
+| `DEEPSEEK_CHAT_MAX_TOKENS` | Tope de tokens de las respuestas del chat (800) |
+
+**Qué responde el chat:**
+
+- **Saludo o pregunta general** ("hola", recomendaciones, dudas): la IA contesta con naturalidad usando el contexto del análisis (requisitos, región, estadísticas, resumen).
+- **Modelo del catálogo**: responde anclada a las especificaciones verificadas de PostgreSQL (el veredicto lo calcula el backend; la IA solo lo redacta).
+- **Modelo fuera del catálogo**: lo dice en una frase y ofrece la alternativa general, **sin inventar specs**.
+- **Modelo antiguo o de otra región**: responde la regla determinista ("No compatible" / "no catalogado") **sin gastar tokens**.
+- **Sin key o API caída**: modo respaldo con un texto honesto ("La IA conversacional no está configurada…"), aviso visible y **sin cobrar crédito**.
+
+**Conversación con memoria:** el backend envía al modelo los últimos 10 turnos de ese análisis (recortados a ~3000 caracteres) como mensajes reales `user`/`assistant`, así que las preguntas de seguimiento tienen contexto.
+
+**Qué ve el usuario:** punto verde/rojo junto al título del chat (`IA conectada · deepseek-chat` / `Modo respaldo`, vía `GET /api/ai/status`), indicador "El asistente está escribiendo…", etiqueta del motor en cada respuesta (`IA deepseek-chat`, `Regla del catálogo`, `Sin IA (modo respaldo)`), créditos restantes y errores legibles (402 → modal de planes, 502/504 → reintentar, 401 → sesión expirada).
+
+**Seguridad:** el HTML del autor, del texto y de la fuente se escapa (`escapeHtml`) antes de aplicar el formato; `GET /api/analysis/{id}/questions` solo responde al dueño del análisis o a un admin; la API key nunca se registra en logs ni se devuelve (solo enmascarada al admin).
 
 ---
 
@@ -237,41 +274,3 @@ AdaptMobile/
     ├── processed_data2.csv
     └── data.json
 ```
-
----
-
-## Despliegue en la nube (Práctica integradora 2)
-
-**Aplicación en línea:** http://79.143.88.199
-
-### Cómo se desplegó
-El proyecto incluye `docker-compose.yml` (4 contenedores) y sirve para ejecutarlo en una computadora local.
-En el servidor de la práctica **se desplegó sin Docker** porque el disco es de solo 5 GB y las imágenes no cabían.
-El script [`deploy/deploy_nativo.sh`](deploy/deploy_nativo.sh) instala PostgreSQL, NGINX y un entorno de Python,
-y crea los servicios `adaptmobile-ai` y `adaptmobile-backend` con systemd:
-
-```bash
-# en el servidor, como root, con el proyecto descomprimido en /opt/Los_Telefonos
-bash deploy_nativo.sh
-```
-
-El proxy inverso (NGINX) es la única puerta de entrada pública: sirve el frontend y reenvía `/api/` al backend.
-El backend (8000), la IA (8001) y PostgreSQL (5432) escuchan solo en `127.0.0.1`.
-La configuración real está en [`deploy/nginx-adaptmobile.conf`](deploy/nginx-adaptmobile.conf) y el diagrama de red
-en [`docs/ARQUITECTURA_RED.md`](docs/ARQUITECTURA_RED.md).
-
-### IA con Ollama
-El servicio de IA usa una API compatible con OpenAI, por lo que se conecta a Ollama sin cambiar código
-(modelo `qwen2.5-coder:7b`). Variables en `.env` (ver `.env.example`):
-
-```env
-AI_PROVIDER=deepseek
-DEEPSEEK_BASE_URL=http://127.0.0.1:11434/v1
-DEEPSEEK_MODEL=qwen2.5-coder:7b
-DEEPSEEK_TIMEOUT=300
-DEEPSEEK_MAX_TOKENS=500
-```
-
-Ollama corre en la computadora de un integrante y el servidor llega a él mediante un **túnel SSH inverso**
-(`ssh -N -R 127.0.0.1:11434:localhost:11434 usuario@servidor`). Si Ollama no responde, el servicio usa un motor
-determinista de respaldo. La conexión por la VPN del equipo queda como paso pendiente: solo cambiaría `DEEPSEEK_BASE_URL`.

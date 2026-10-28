@@ -4,8 +4,8 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 from .config import settings
 from .engine import engine
-from .keyring import key_store
-from .deepseek import deepseek
+from .keyring import chat_key_store, key_store
+from .deepseek import chat_ai, deepseek
 
 app = FastAPI(title="AdaptMobile AI Microservice", version="1.1.0")
 
@@ -26,13 +26,19 @@ class QuestionRequest(BaseModel):
     requirements: Dict[str, Any]
     device_specs: Optional[Dict[str, Any]] = None
     question: str
+    # Contexto extra para la segunda IA del chat (preguntas generales)
+    region: Optional[str] = None
+    summary: Optional[str] = None
+    stats: Optional[Dict[str, Any]] = None
+    # Turnos previos de la conversación: [{"role": "user"|"assistant", "content": str}]
+    history: Optional[List[Dict[str, str]]] = None
 
 class ApiKeyIn(BaseModel):
     api_key: str
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "adaptmobile-ai", **deepseek.status()}
+    return {"status": "ok", "service": "adaptmobile-ai", **deepseek.status(), "chat": chat_ai.status()}
 
 @app.post("/estimate-requirements")
 def estimate_requirements(req: EstimateRequest):
@@ -78,25 +84,32 @@ def _require_admin_token(x_admin_token: Optional[str]) -> None:
 
 @app.get("/admin/api-key", tags=["admin"])
 def get_api_key_status(x_admin_token: Optional[str] = Header(None)):
-    """Estado actual de la key: fuente, modo efectivo y versión enmascarada."""
+    """Estado de la IA principal y de la IA del chat: fuente, modo y versión enmascarada."""
     _require_admin_token(x_admin_token)
-    return deepseek.status()
+    return {**deepseek.status(), "chat": chat_ai.status()}
 
 
 @app.post("/admin/api-key", tags=["admin"])
 def rotate_api_key(payload: ApiKeyIn, x_admin_token: Optional[str] = Header(None)):
-    """Rota la key en memoria: efecto inmediato, sin reiniciar el contenedor."""
+    """Rota la key en memoria: efecto inmediato en el motor y en el chat, sin reiniciar."""
     _require_admin_token(x_admin_token)
     try:
         key_store.set_override(payload.api_key)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return deepseek.status()
+    return {**deepseek.status(), "chat": chat_ai.status()}
 
 
 @app.delete("/admin/api-key", tags=["admin"])
 def clear_api_key(x_admin_token: Optional[str] = Header(None)):
-    """Descarta el override y vuelve a la key del archivo o de la variable de entorno."""
+    """Descarta los overrides (principal y chat) y vuelve al archivo / variable de entorno."""
     _require_admin_token(x_admin_token)
-    removed = key_store.clear_override()
-    return {"override_removed": removed, **deepseek.status()}
+    removed_main = key_store.clear_override()
+    removed_chat = chat_key_store.clear_override()
+    return {
+        "override_removed": removed_main or removed_chat,
+        "override_removed_main": removed_main,
+        "override_removed_chat": removed_chat,
+        **deepseek.status(),
+        "chat": chat_ai.status(),
+    }
